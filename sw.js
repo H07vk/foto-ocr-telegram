@@ -9,7 +9,7 @@
 // Update zuverlässig, verwirft den alten Cache (siehe "activate" unten) und lädt
 // die neuen Dateien frisch nach.
 
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1";
 const CACHE_NAME = "foto-ocr-shell-" + APP_VERSION;
 const SHELL_FILES = [
   "./",

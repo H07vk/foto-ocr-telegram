@@ -259,6 +259,27 @@
     outline: 2px solid var(--brand-2);
     outline-offset: 1px;
   }
+
+  .input-with-toggle { position: relative; }
+  .input-with-toggle input { padding-right: 44px; }
+  .toggle-visibility-btn {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+    width: 34px;
+    height: 34px;
+    border: none;
+    background: none;
+    font-size: 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: var(--text-muted);
+  }
+  .toggle-visibility-btn:active { background: var(--surface-2); }
   textarea#ocrText {
     min-height: 150px;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -359,6 +380,7 @@
     line-height: 1.5;
     color: var(--text);
   }
+
 </style>
 </head>
 <body>
@@ -430,7 +452,10 @@
 
     <div class="field">
       <label class="field-label" for="ocrKeyInput">OCR.space-API-Key</label>
-      <input type="text" id="ocrKeyInput" autocomplete="off" placeholder="z. B. K81234567890abc" />
+      <div class="input-with-toggle">
+        <input type="password" id="ocrKeyInput" autocomplete="off" placeholder="z. B. K81234567890abc" />
+        <button type="button" class="toggle-visibility-btn" id="toggleOcrKeyBtn" aria-label="Anzeigen" title="Anzeigen">👁️</button>
+      </div>
     </div>
 
     <div class="field">
@@ -472,12 +497,13 @@
 
     <div>
       <h3 class="info-heading">Version</h3>
-      <p class="info-text">Aktuelle Version: <strong>1.0.0</strong></p>
+      <p class="info-text">Aktuelle Version: <strong>1.0.1</strong></p>
     </div>
 
     <div>
       <h3 class="info-heading">Änderungen</h3>
       <ul class="changelog">
+        <li><strong>1.0.1</strong> – OCR-API-Key im Einstellungen-Dialog maskiert (wie ein Passwortfeld), mit Auge-Symbol zum kurzzeitigen Anzeigen.</li>
         <li><strong>1.0.0</strong> – Erste Version: Foto aufnehmen, Texterkennung über OCR.space, Text vor dem Versand bearbeiten, Versand an Telegram, automatischer Rücksprung zur Kamera nach dem Senden, Info-Tab mit Versionsverlauf.</li>
       </ul>
     </div>
@@ -506,6 +532,7 @@
     tokenInput: document.getElementById("tokenInput"),
     chatIdInput: document.getElementById("chatIdInput"),
     ocrKeyInput: document.getElementById("ocrKeyInput"),
+    toggleOcrKeyBtn: document.getElementById("toggleOcrKeyBtn"),
     langSelect: document.getElementById("langSelect"),
 
     captureCard: document.getElementById("captureCard"),
@@ -568,8 +595,21 @@
     els.chatIdInput.value = s.chatId || "";
     els.ocrKeyInput.value = s.ocrApiKey || "";
     els.langSelect.value = normalizeLang(s.ocrLang);
+    els.ocrKeyInput.type = "password";
+    els.toggleOcrKeyBtn.textContent = "👁️";
+    els.toggleOcrKeyBtn.setAttribute("aria-label", "Anzeigen");
+    els.toggleOcrKeyBtn.setAttribute("title", "Anzeigen");
     els.settingsBackdrop.hidden = false;
   }
+
+  els.toggleOcrKeyBtn.addEventListener("click", function () {
+    var showing = els.ocrKeyInput.type === "text";
+    els.ocrKeyInput.type = showing ? "password" : "text";
+    els.toggleOcrKeyBtn.textContent = showing ? "👁️" : "🙈";
+    var label = showing ? "Anzeigen" : "Verbergen";
+    els.toggleOcrKeyBtn.setAttribute("aria-label", label);
+    els.toggleOcrKeyBtn.setAttribute("title", label);
+  });
 
   function closeSettings() {
     els.settingsBackdrop.hidden = true;
