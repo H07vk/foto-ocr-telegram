@@ -439,6 +439,29 @@
     color: var(--text);
   }
 
+  .usage-box {
+    background: var(--surface-2);
+    border-radius: var(--radius-m);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .usage-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 14px;
+  }
+  .usage-row span { color: var(--text-muted); }
+  .usage-row strong { font-size: 15px; }
+  .usage-note {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
 </style>
 </head>
 <body>
@@ -516,6 +539,12 @@
       </div>
     </div>
 
+    <div class="usage-box" id="usageBox">
+      <div class="usage-row"><span>Heute noch übrig</span><strong id="usageDayCount">– / 500</strong></div>
+      <div class="usage-row"><span>Diesen Monat noch übrig</span><strong id="usageMonthCount">– / 25.000</strong></div>
+      <p class="usage-note">Lokale Zählung der OCR-Aufrufe dieser App (OCR.space bietet im kostenlosen Plan selbst keine Verbrauchsanzeige). Setzt sich automatisch täglich bzw. monatlich zurück.</p>
+    </div>
+
     <div class="field">
       <label class="field-label" for="langSelect">OCR-Sprache</label>
       <select id="langSelect">
@@ -566,12 +595,13 @@
 
     <div>
       <h3 class="info-heading">Version</h3>
-      <p class="info-text">Aktuelle Version: <strong>1.1.0</strong></p>
+      <p class="info-text">Aktuelle Version: <strong>1.2.0</strong></p>
     </div>
 
     <div>
       <h3 class="info-heading">Änderungen</h3>
       <ul class="changelog">
+        <li><strong>1.2.0</strong> – Neue Anzeige in den Einstellungen: verbleibende OCR-Aufrufe heute (von 500) und diesen Monat (von 25.000), lokal gezählt und automatisch täglich/monatlich zurückgesetzt.</li>
         <li><strong>1.1.0</strong> – Neuer Schalter „Automatisch senden": erkannter Text geht ohne Zwischenschritt direkt an Telegram (nur wenn Text erkannt wurde). Außerdem: App-Seite lädt beim Öffnen jetzt immer zuerst frisch aus dem Netz statt aus dem Cache, damit Updates zuverlässiger ankommen.</li>
         <li><strong>1.0.1</strong> – OCR-API-Key im Einstellungen-Dialog maskiert (wie ein Passwortfeld), mit Auge-Symbol zum kurzzeitigen Anzeigen.</li>
         <li><strong>1.0.0</strong> – Erste Version: Foto aufnehmen, Texterkennung über OCR.space, Text vor dem Versand bearbeiten, Versand an Telegram, automatischer Rücksprung zur Kamera nach dem Senden, Info-Tab mit Versionsverlauf.</li>
@@ -605,6 +635,8 @@
     toggleOcrKeyBtn: document.getElementById("toggleOcrKeyBtn"),
     langSelect: document.getElementById("langSelect"),
     autoSendToggle: document.getElementById("autoSendToggle"),
+    usageDayCount: document.getElementById("usageDayCount"),
+    usageMonthCount: document.getElementById("usageMonthCount"),
 
     captureCard: document.getElementById("captureCard"),
     takePhotoBtn: document.getElementById("takePhotoBtn"),
@@ -648,6 +680,75 @@
 
   var OCR_LANG_VALUES = ["ger", "eng", "auto"];
 
+  // ---- OCR-Verbrauchszähler (lokal, da OCR.space im Free-Tier keine
+  // Verbrauchsanzeige bietet). Zählt jeden tatsächlich abgeschickten
+  // OCR-Aufruf und setzt sich automatisch zurück, sobald Tag bzw. Monat
+  // wechselt. Die Limits entsprechen dem OCR.space-Free-Tier (Stand der
+  // OCR.space-Dokumentation): 500 Aufrufe/Tag, 25.000 Aufrufe/Monat.
+  var USAGE_KEY = "fotoOcrUsageCounter";
+  var DAILY_LIMIT = 500;
+  var MONTHLY_LIMIT = 25000;
+
+  function pad2(n) {
+    return n < 10 ? "0" + n : "" + n;
+  }
+  function todayKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+  }
+  function monthKey() {
+    var d = new Date();
+    return d.getFullYear() + "-" + pad2(d.getMonth() + 1);
+  }
+
+  function loadUsage() {
+    var dk = todayKey();
+    var mk = monthKey();
+    var u = {};
+    try {
+      var raw = localStorage.getItem(USAGE_KEY);
+      u = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      u = {};
+    }
+    if (u.dayKey !== dk) {
+      u.dayKey = dk;
+      u.dayCount = 0;
+    }
+    if (u.monthKey !== mk) {
+      u.monthKey = mk;
+      u.monthCount = 0;
+    }
+    if (typeof u.dayCount !== "number") u.dayCount = 0;
+    if (typeof u.monthCount !== "number") u.monthCount = 0;
+    return u;
+  }
+
+  function saveUsage(u) {
+    try {
+      localStorage.setItem(USAGE_KEY, JSON.stringify(u));
+    } catch (e) {
+      /* localStorage evtl. nicht verfügbar - Zähler ist ohnehin nur eine Anzeige */
+    }
+  }
+
+  function registerOcrCall() {
+    var u = loadUsage();
+    u.dayCount++;
+    u.monthCount++;
+    saveUsage(u);
+    updateUsageDisplay();
+  }
+
+  function updateUsageDisplay() {
+    if (!els.usageDayCount || !els.usageMonthCount) return;
+    var u = loadUsage();
+    var dayLeft = Math.max(0, DAILY_LIMIT - u.dayCount);
+    var monthLeft = Math.max(0, MONTHLY_LIMIT - u.monthCount);
+    els.usageDayCount.textContent = dayLeft + " / " + DAILY_LIMIT;
+    els.usageMonthCount.textContent = monthLeft.toLocaleString("de-DE") + " / " + MONTHLY_LIMIT.toLocaleString("de-DE");
+  }
+
   function hasCredentials(settings) {
     return !!(settings && settings.token && settings.chatId);
   }
@@ -671,6 +772,7 @@
     els.toggleOcrKeyBtn.textContent = "👁️";
     els.toggleOcrKeyBtn.setAttribute("aria-label", "Anzeigen");
     els.toggleOcrKeyBtn.setAttribute("title", "Anzeigen");
+    updateUsageDisplay();
     els.settingsBackdrop.hidden = false;
   }
 
@@ -871,6 +973,7 @@
         formData.append("scale", "true");
         formData.append("detectOrientation", "true");
 
+        registerOcrCall();
         return fetch(OCR_ENDPOINT, { method: "POST", body: formData });
       })
       .then(function (res) {
