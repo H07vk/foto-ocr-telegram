@@ -280,6 +280,64 @@
     color: var(--text-muted);
   }
   .toggle-visibility-btn:active { background: var(--surface-2); }
+
+  .toggle-field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .toggle-field .toggle-text .field-label { margin-bottom: 2px; }
+  .toggle-field .toggle-text p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  .switch {
+    position: relative;
+    display: inline-block;
+    width: 46px;
+    height: 27px;
+    flex: none;
+  }
+  .switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .switch-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+  .switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 21px;
+    height: 21px;
+    left: 2px;
+    top: 2px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
+  }
+  .switch input:checked + .switch-slider {
+    background: var(--brand);
+    border-color: var(--brand);
+  }
+  .switch input:checked + .switch-slider::before {
+    transform: translateX(19px);
+  }
+  .switch input:focus-visible + .switch-slider {
+    outline: 2px solid var(--brand-2);
+    outline-offset: 2px;
+  }
   textarea#ocrText {
     min-height: 150px;
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -467,6 +525,17 @@
       </select>
     </div>
 
+    <div class="toggle-field">
+      <div class="toggle-text">
+        <label class="field-label" for="autoSendToggle">Automatisch senden</label>
+        <p>Erkannter Text wird sofort an Telegram gesendet, ohne Zwischenschritt zum Prüfen. Wird kein Text erkannt, bleibt die Bearbeitungsseite wie gewohnt mit Fehlermeldung offen.</p>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="autoSendToggle" />
+        <span class="switch-slider"></span>
+      </label>
+    </div>
+
     <p class="hint">
       Der Bot-Token kommt von @BotFather, die Chat-ID/der Bot-Username ist das Ziel, an das der erkannte Text
       gesendet wird. Der OCR-API-Key ist kostenlos unter
@@ -497,12 +566,13 @@
 
     <div>
       <h3 class="info-heading">Version</h3>
-      <p class="info-text">Aktuelle Version: <strong>1.0.1</strong></p>
+      <p class="info-text">Aktuelle Version: <strong>1.1.0</strong></p>
     </div>
 
     <div>
       <h3 class="info-heading">Änderungen</h3>
       <ul class="changelog">
+        <li><strong>1.1.0</strong> – Neuer Schalter „Automatisch senden": erkannter Text geht ohne Zwischenschritt direkt an Telegram (nur wenn Text erkannt wurde). Außerdem: App-Seite lädt beim Öffnen jetzt immer zuerst frisch aus dem Netz statt aus dem Cache, damit Updates zuverlässiger ankommen.</li>
         <li><strong>1.0.1</strong> – OCR-API-Key im Einstellungen-Dialog maskiert (wie ein Passwortfeld), mit Auge-Symbol zum kurzzeitigen Anzeigen.</li>
         <li><strong>1.0.0</strong> – Erste Version: Foto aufnehmen, Texterkennung über OCR.space, Text vor dem Versand bearbeiten, Versand an Telegram, automatischer Rücksprung zur Kamera nach dem Senden, Info-Tab mit Versionsverlauf.</li>
       </ul>
@@ -534,6 +604,7 @@
     ocrKeyInput: document.getElementById("ocrKeyInput"),
     toggleOcrKeyBtn: document.getElementById("toggleOcrKeyBtn"),
     langSelect: document.getElementById("langSelect"),
+    autoSendToggle: document.getElementById("autoSendToggle"),
 
     captureCard: document.getElementById("captureCard"),
     takePhotoBtn: document.getElementById("takePhotoBtn"),
@@ -595,6 +666,7 @@
     els.chatIdInput.value = s.chatId || "";
     els.ocrKeyInput.value = s.ocrApiKey || "";
     els.langSelect.value = normalizeLang(s.ocrLang);
+    els.autoSendToggle.checked = !!s.autoSend;
     els.ocrKeyInput.type = "password";
     els.toggleOcrKeyBtn.textContent = "👁️";
     els.toggleOcrKeyBtn.setAttribute("aria-label", "Anzeigen");
@@ -635,6 +707,7 @@
     var chatId = els.chatIdInput.value.trim();
     var ocrApiKey = els.ocrKeyInput.value.trim();
     var ocrLang = normalizeLang(els.langSelect.value);
+    var autoSend = els.autoSendToggle.checked;
 
     if (!token || !chatId) {
       els.tokenInput.style.borderColor = token ? "var(--border)" : "var(--danger)";
@@ -642,7 +715,7 @@
       return;
     }
 
-    saveSettings({ token: token, chatId: chatId, ocrApiKey: ocrApiKey, ocrLang: ocrLang });
+    saveSettings({ token: token, chatId: chatId, ocrApiKey: ocrApiKey, ocrLang: ocrLang, autoSend: autoSend });
     closeSettings();
     updateSendAvailability();
   });
@@ -816,8 +889,14 @@
         var text = (result.ParsedText || "").trim();
         els.ocrText.value = text;
         updateSendAvailability();
+
         if (!text) {
           showStatus("Kein Text erkannt. Text kann manuell eingetragen werden.", "info");
+          return;
+        }
+
+        if (settings.autoSend && hasCredentials(settings)) {
+          sendCurrentText();
         }
       })
       .catch(function (err) {
@@ -854,6 +933,10 @@
   }
 
   els.sendBtn.addEventListener("click", function () {
+    sendCurrentText();
+  });
+
+  function sendCurrentText() {
     var settings = loadSettings();
     if (!hasCredentials(settings)) {
       openSettings();
@@ -903,7 +986,7 @@
         els.sendBtn.disabled = false;
         els.sendBtn.textContent = "An Telegram senden";
       });
-  });
+  }
 
   function showStatus(msg, kind) {
     els.statusBox.textContent = msg;

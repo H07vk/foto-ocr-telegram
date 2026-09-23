@@ -1,5 +1,5 @@
-// Service Worker: cached nur die App-Shell (HTML/Icons/Manifest) für schnellen
-// Start und Offline-Anzeige. OCR.space-Anfragen und der Telegram-Versand laufen
+// Service Worker: cached die App-Shell (HTML/Icons/Manifest) nur noch als
+// Offline-Rückfallebene. OCR.space-Anfragen und der Telegram-Versand laufen
 // bewusst NICHT über den Cache, sondern immer direkt über das Netz - beides
 // braucht ohnehin eine aktive Verbindung.
 //
@@ -9,7 +9,7 @@
 // Update zuverlässig, verwirft den alten Cache (siehe "activate" unten) und lädt
 // die neuen Dateien frisch nach.
 
-const APP_VERSION = "1.0.1";
+const APP_VERSION = "1.1.0";
 const CACHE_NAME = "foto-ocr-shell-" + APP_VERSION;
 const SHELL_FILES = [
   "./",
@@ -38,12 +38,37 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Nur eigene Dateien behandeln - alles andere (Tesseract-CDN, Telegram-API)
+  // Nur eigene Dateien behandeln - alles andere (OCR.space, Telegram-API)
   // unangetastet ans Netz durchreichen.
   if (url.origin !== self.location.origin || event.request.method !== "GET") {
     return;
   }
 
+  const isAppShellDoc =
+    event.request.mode === "navigate" ||
+    url.pathname.endsWith("/index.html") ||
+    url.pathname.endsWith("/");
+
+  if (isAppShellDoc) {
+    // Network-first für die App-Seite selbst: jedes Öffnen mit bestehender
+    // Verbindung lädt garantiert die aktuell deployte Version. Der Cache
+    // dient nur noch als Rückfallebene, falls gar keine Verbindung besteht.
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Icons/Manifest ändern sich praktisch nie: cache-first, im Hintergrund
+  // aktualisiert.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const network = fetch(event.request)
