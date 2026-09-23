@@ -216,17 +216,25 @@
     justify-content: space-between;
   }
   .progress-track {
+    position: relative;
     height: 8px;
     border-radius: 999px;
     background: var(--surface-2);
     overflow: hidden;
   }
   .progress-bar {
+    position: absolute;
+    top: 0;
+    left: -40%;
     height: 100%;
-    width: 0%;
+    width: 40%;
     background: linear-gradient(90deg, var(--brand-2), var(--brand));
     border-radius: 999px;
-    transition: width 0.25s ease;
+    animation: progress-indeterminate 1.1s ease-in-out infinite;
+  }
+  @keyframes progress-indeterminate {
+    0% { left: -40%; }
+    100% { left: 100%; }
   }
 
   label.field-label {
@@ -376,15 +384,15 @@
     <div class="status" id="statusBox"></div>
   </section>
 
-  <p class="footer-note">Token &amp; Chat-ID werden nur lokal auf diesem Gerät gespeichert.</p>
+  <p class="footer-note">Token, Chat-ID und OCR-API-Key werden nur lokal auf diesem Gerät gespeichert.</p>
 </main>
 
 <div class="backdrop" id="settingsBackdrop" hidden>
   <div class="sheet">
-    <h2>Telegram-Einstellungen</h2>
+    <h2>Einstellungen</h2>
 
     <div class="field">
-      <label class="field-label" for="tokenInput">Bot-Token</label>
+      <label class="field-label" for="tokenInput">Telegram Bot-Token</label>
       <input type="password" id="tokenInput" autocomplete="off" placeholder="123456789:AA…" />
     </div>
 
@@ -394,17 +402,25 @@
     </div>
 
     <div class="field">
+      <label class="field-label" for="ocrKeyInput">OCR.space-API-Key</label>
+      <input type="text" id="ocrKeyInput" autocomplete="off" placeholder="z. B. K81234567890abc" />
+    </div>
+
+    <div class="field">
       <label class="field-label" for="langSelect">OCR-Sprache</label>
       <select id="langSelect">
-        <option value="deu">Deutsch</option>
+        <option value="ger">Deutsch</option>
         <option value="eng">Englisch</option>
-        <option value="deu+eng">Deutsch + Englisch</option>
+        <option value="auto">Automatisch erkennen</option>
       </select>
     </div>
 
     <p class="hint">
       Der Bot-Token kommt von @BotFather, die Chat-ID/der Bot-Username ist das Ziel, an das der erkannte Text
-      gesendet wird. Beide Werte bleiben ausschließlich im lokalen Speicher dieses Browsers/Geräts.
+      gesendet wird. Der OCR-API-Key ist kostenlos unter
+      <a href="https://ocr.space/ocrapi/freekey" target="_blank" rel="noopener">ocr.space/ocrapi/freekey</a>
+      erhältlich (nur E-Mail nötig, keine Zahlungsdaten). Alle Werte bleiben ausschließlich im lokalen Speicher
+      dieses Browsers/Geräts.
     </p>
 
     <div class="sheet-actions">
@@ -414,7 +430,6 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
 (function () {
   "use strict";
@@ -428,6 +443,7 @@
     saveSettingsBtn: document.getElementById("saveSettingsBtn"),
     tokenInput: document.getElementById("tokenInput"),
     chatIdInput: document.getElementById("chatIdInput"),
+    ocrKeyInput: document.getElementById("ocrKeyInput"),
     langSelect: document.getElementById("langSelect"),
 
     captureCard: document.getElementById("captureCard"),
@@ -470,15 +486,26 @@
     }
   }
 
+  var OCR_LANG_VALUES = ["ger", "eng", "auto"];
+
   function hasCredentials(settings) {
     return !!(settings && settings.token && settings.chatId);
+  }
+
+  function hasOcrKey(settings) {
+    return !!(settings && settings.ocrApiKey);
+  }
+
+  function normalizeLang(lang) {
+    return OCR_LANG_VALUES.indexOf(lang) !== -1 ? lang : "ger";
   }
 
   function openSettings() {
     var s = loadSettings();
     els.tokenInput.value = s.token || "";
     els.chatIdInput.value = s.chatId || "";
-    els.langSelect.value = s.lang || "deu";
+    els.ocrKeyInput.value = s.ocrApiKey || "";
+    els.langSelect.value = normalizeLang(s.ocrLang);
     els.settingsBackdrop.hidden = false;
   }
 
@@ -497,7 +524,8 @@
   els.saveSettingsBtn.addEventListener("click", function () {
     var token = els.tokenInput.value.trim();
     var chatId = els.chatIdInput.value.trim();
-    var lang = els.langSelect.value;
+    var ocrApiKey = els.ocrKeyInput.value.trim();
+    var ocrLang = normalizeLang(els.langSelect.value);
 
     if (!token || !chatId) {
       els.tokenInput.style.borderColor = token ? "var(--border)" : "var(--danger)";
@@ -505,7 +533,7 @@
       return;
     }
 
-    saveSettings({ token: token, chatId: chatId, lang: lang });
+    saveSettings({ token: token, chatId: chatId, ocrApiKey: ocrApiKey, ocrLang: ocrLang });
     closeSettings();
     updateSendAvailability();
   });
@@ -559,69 +587,127 @@
     runOcr(file);
   }
 
-  // ---- OCR ----
+  // ---- OCR (Cloud: OCR.space) ----
 
-  var worker = null;
-  var workerLang = null;
+  var OCR_ENDPOINT = "https://api.ocr.space/parse/image";
+  var MAX_UPLOAD_BYTES = 950 * 1024; // Puffer unter dem 1-MB-Limit der Free-Tier
+  var COMPRESS_ATTEMPTS = [
+    { maxDim: 1900, quality: 0.82 },
+    { maxDim: 1600, quality: 0.75 },
+    { maxDim: 1300, quality: 0.65 },
+    { maxDim: 1000, quality: 0.55 },
+  ];
 
-  var STATUS_LABELS = {
-    "loading tesseract core": "Erkennungsmodul wird geladen…",
-    "initializing tesseract": "Initialisiere…",
-    "loading language traineddata": "Sprachdaten werden geladen…",
-    "initializing api": "Bereite Erkennung vor…",
-    "recognizing text": "Text wird erkannt…",
-  };
-
-  function setProgress(label, pct) {
+  function setProgress(label) {
     els.progressWrap.classList.add("show");
     els.progressLabel.textContent = label;
-    els.progressPct.textContent = typeof pct === "number" ? pct + "%" : "";
-    els.progressBar.style.width = (typeof pct === "number" ? pct : 0) + "%";
+    els.progressPct.textContent = "";
   }
 
-  function getWorker(lang) {
-    if (typeof Tesseract === "undefined") {
-      return Promise.reject(new Error("Das Erkennungsmodul konnte nicht geladen werden (keine Internetverbindung?)."));
-    }
-    if (worker && workerLang === lang) return Promise.resolve(worker);
-
-    var teardown = worker ? worker.terminate() : Promise.resolve();
-    worker = null;
-
-    return teardown.then(function () {
-      return Tesseract.createWorker(lang, 1, {
-        logger: function (m) {
-          if (m.status === "recognizing text" && typeof m.progress === "number") {
-            setProgress(STATUS_LABELS[m.status] || m.status, Math.round(m.progress * 100));
-          } else {
-            setProgress(STATUS_LABELS[m.status] || m.status);
-          }
-        },
-      });
-    }).then(function (w) {
-      worker = w;
-      workerLang = lang;
-      return worker;
+  function loadImage(file) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        resolve({ img: img, url: url });
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error("Bild konnte nicht geladen werden."));
+      };
+      img.src = url;
     });
+  }
+
+  function drawResized(img, maxDim, quality) {
+    var scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    var w = Math.max(1, Math.round(img.width * scale));
+    var h = Math.max(1, Math.round(img.height * scale));
+    var canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    return new Promise(function (resolve, reject) {
+      canvas.toBlob(
+        function (blob) {
+          if (blob) resolve(blob);
+          else reject(new Error("Bildkomprimierung fehlgeschlagen."));
+        },
+        "image/jpeg",
+        quality
+      );
+    });
+  }
+
+  function compressForUpload(file) {
+    return loadImage(file).then(function (loaded) {
+      var attemptIndex = 0;
+      function tryNext() {
+        var a = COMPRESS_ATTEMPTS[attemptIndex];
+        return drawResized(loaded.img, a.maxDim, a.quality).then(function (blob) {
+          attemptIndex++;
+          if (blob.size <= MAX_UPLOAD_BYTES || attemptIndex >= COMPRESS_ATTEMPTS.length) {
+            URL.revokeObjectURL(loaded.url);
+            return blob;
+          }
+          return tryNext();
+        });
+      }
+      return tryNext();
+    });
+  }
+
+  function extractApiErrorMessage(data) {
+    if (!data) return "Unbekannter Fehler bei der Texterkennung.";
+    if (Array.isArray(data.ErrorMessage)) return data.ErrorMessage.join(" ");
+    if (data.ErrorMessage) return data.ErrorMessage;
+    return "Unbekannter Fehler bei der Texterkennung.";
   }
 
   function runOcr(file) {
     var settings = loadSettings();
-    var lang = settings.lang || "deu";
 
     els.resultBlock.hidden = true;
-    setProgress("Starte Texterkennung…", 0);
+    hideStatus();
 
-    getWorker(lang)
-      .then(function (w) {
-        return w.recognize(file);
+    if (!hasOcrKey(settings)) {
+      els.resultBlock.hidden = false;
+      showStatus("Kein OCR-API-Key hinterlegt. Bitte in den Einstellungen (⚙️) eintragen – Text kann bis dahin auch manuell eingegeben werden.", "err");
+      return;
+    }
+
+    setProgress("Bild wird vorbereitet…");
+
+    compressForUpload(file)
+      .then(function (blob) {
+        setProgress("Text wird erkannt…");
+        var formData = new FormData();
+        formData.append("file", blob, "foto.jpg");
+        formData.append("language", normalizeLang(settings.ocrLang));
+        formData.append("apikey", settings.ocrApiKey);
+        formData.append("OCREngine", "2");
+        formData.append("scale", "true");
+        formData.append("detectOrientation", "true");
+
+        return fetch(OCR_ENDPOINT, { method: "POST", body: formData });
       })
-      .then(function (result) {
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (data) {
         els.progressWrap.classList.remove("show");
-        els.ocrText.value = (result.data && result.data.text ? result.data.text.trim() : "");
         els.resultBlock.hidden = false;
+
+        var result = data && data.ParsedResults && data.ParsedResults[0];
+        if (!data || data.IsErroredOnProcessing || !result) {
+          showStatus("Texterkennung fehlgeschlagen: " + extractApiErrorMessage(data), "err");
+          return;
+        }
+
+        var text = (result.ParsedText || "").trim();
+        els.ocrText.value = text;
         updateSendAvailability();
-        if (!els.ocrText.value) {
+        if (!text) {
           showStatus("Kein Text erkannt. Text kann manuell eingetragen werden.", "info");
         }
       })
@@ -716,7 +802,7 @@
 
   var initial = loadSettings();
   updateSendAvailability();
-  if (!hasCredentials(initial)) {
+  if (!hasCredentials(initial) || !hasOcrKey(initial)) {
     openSettings();
   }
 
