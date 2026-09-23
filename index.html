@@ -335,13 +335,40 @@
     color: var(--text-muted);
     padding: 4px 0 10px;
   }
+
+  .info-heading {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .info-text {
+    margin: 0;
+    font-size: 14.5px;
+    line-height: 1.5;
+  }
+  .changelog {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+  }
 </style>
 </head>
 <body>
 
 <header>
   <h1><span class="logo">📷</span> Foto-OCR</h1>
-  <button class="icon-btn" id="openSettingsBtn" type="button" aria-label="Einstellungen" title="Einstellungen">⚙️</button>
+  <div style="display:flex; gap:8px;">
+    <button class="icon-btn" id="openInfoBtn" type="button" aria-label="Info" title="Info">ℹ️</button>
+    <button class="icon-btn" id="openSettingsBtn" type="button" aria-label="Einstellungen" title="Einstellungen">⚙️</button>
+  </div>
 </header>
 
 <main>
@@ -430,6 +457,37 @@
   </div>
 </div>
 
+<!-- Bei jedem Update: Versionsnummer hier UND CACHE_NAME in sw.js hochzählen. -->
+<div class="backdrop" id="infoBackdrop" hidden>
+  <div class="sheet">
+    <h2>Info</h2>
+
+    <div>
+      <h3 class="info-heading">Autoren</h3>
+      <p class="info-text">
+        Holger Utzt – Konzept und fachliche Anforderungen<br />
+        Claude (Anthropic) – Umsetzung als Web-App
+      </p>
+    </div>
+
+    <div>
+      <h3 class="info-heading">Version</h3>
+      <p class="info-text">Aktuelle Version: <strong>1.0.0</strong></p>
+    </div>
+
+    <div>
+      <h3 class="info-heading">Änderungen</h3>
+      <ul class="changelog">
+        <li><strong>1.0.0</strong> – Erste Version: Foto aufnehmen, Texterkennung über OCR.space, Text vor dem Versand bearbeiten, Versand an Telegram, automatischer Rücksprung zur Kamera nach dem Senden, Info-Tab mit Versionsverlauf.</li>
+      </ul>
+    </div>
+
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="closeInfoBtn" type="button" style="width:100%;">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   "use strict";
@@ -437,6 +495,10 @@
   var STORAGE_KEY = "fotoOcrTelegramSettings";
 
   var els = {
+    openInfoBtn: document.getElementById("openInfoBtn"),
+    infoBackdrop: document.getElementById("infoBackdrop"),
+    closeInfoBtn: document.getElementById("closeInfoBtn"),
+
     openSettingsBtn: document.getElementById("openSettingsBtn"),
     settingsBackdrop: document.getElementById("settingsBackdrop"),
     cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
@@ -512,6 +574,13 @@
   function closeSettings() {
     els.settingsBackdrop.hidden = true;
   }
+
+  els.openInfoBtn.addEventListener("click", function () {
+    els.infoBackdrop.hidden = false;
+  });
+  els.closeInfoBtn.addEventListener("click", function () {
+    els.infoBackdrop.hidden = true;
+  });
 
   els.openSettingsBtn.addEventListener("click", openSettings);
   els.cancelSettingsBtn.addEventListener("click", function () {
@@ -775,6 +844,13 @@
       .then(function (r) {
         if (r.json && r.json.ok) {
           showStatus("Gesendet ✓", "ok");
+          setTimeout(function () {
+            resetToCapture();
+            // Best effort: manche Browser lassen ein automatisches Öffnen der
+            // Kamera ohne frischen Tap nicht zu - der "Foto aufnehmen"-Button
+            // ist in dem Fall trotzdem sofort sichtbar.
+            els.cameraInput.click();
+          }, 1200);
         } else {
           var desc = (r.json && r.json.description) || "Unbekannter Fehler von Telegram.";
           showStatus("Telegram-Fehler: " + desc, "err");

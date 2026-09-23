@@ -1,9 +1,16 @@
 // Service Worker: cached nur die App-Shell (HTML/Icons/Manifest) für schnellen
-// Start und Offline-Anzeige. Tesseract-Sprachdaten (CDN) und der Telegram-Versand
-// laufen bewusst NICHT über den Cache, sondern immer direkt über das Netz -
-// beides braucht ohnehin eine aktive Verbindung.
+// Start und Offline-Anzeige. OCR.space-Anfragen und der Telegram-Versand laufen
+// bewusst NICHT über den Cache, sondern immer direkt über das Netz - beides
+// braucht ohnehin eine aktive Verbindung.
+//
+// WICHTIG für Updates: APP_VERSION hier bei jeder inhaltlichen Änderung hochzählen
+// (synchron zur Versionsnummer im Info-Tab von index.html). Nur so unterscheidet
+// sich diese Datei byteweise von der vorigen Version, der Browser erkennt das
+// Update zuverlässig, verwirft den alten Cache (siehe "activate" unten) und lädt
+// die neuen Dateien frisch nach.
 
-const CACHE_NAME = "foto-ocr-shell-v1";
+const APP_VERSION = "1.0.0";
+const CACHE_NAME = "foto-ocr-shell-" + APP_VERSION;
 const SHELL_FILES = [
   "./",
   "./index.html",
